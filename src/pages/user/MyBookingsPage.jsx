@@ -1,47 +1,74 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import DataTable from '../../components/shared/DataTable'
+import DetailDrawer from '../../components/shared/DetailDrawer'
+import Modal from '../../components/shared/Modal'
+import QRCodeDisplay from '../../components/shared/QRCodeDisplay'
 import StatusBadge from '../../components/shared/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
-import { bookings as mockBookings, parkingSites } from '../../data/mockData'
+import { bookings as mockBookings, parkingSessions, parkingSites } from '../../data/mockData'
 
-const PAGE_SIZE = 6
-const money = new Intl.NumberFormat('vi-VN', {
-  style: 'currency',
-  currency: 'VND',
-  maximumFractionDigits: 0,
-})
+const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
+const tabs = ['All', 'Reserved', 'Active', 'Completed', 'Cancelled']
 
-const statusSteps = ['Reserved', 'Active', 'Completed']
-const getUserBookings = (userId) => mockBookings
-  .filter((booking) => booking.userId === userId)
-  .map((booking) => ({
-    ...booking,
-    status: booking.status === 'Confirmed' ? 'Reserved' : booking.status,
-  }))
+function normalizeBooking(booking) {
+  return { ...booking, status: booking.status === 'Confirmed' ? 'Reserved' : booking.status }
+}
+
+function loadBookings(userId) {
+  const mocked = mockBookings.filter((booking) => booking.userId === userId).map(normalizeBooking)
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(`qr-parking-bookings-${userId}`) || 'null')
+    if (Array.isArray(stored)) return [...stored, ...mocked.filter((booking) => !stored.some((item) => item.id === booking.id))]
+  } catch {
+    // Fall back to mock data when session storage is unavailable or invalid.
+  }
+  return mocked
+}
+
+function saveBookings(userId, bookings) {
+  try {
+    window.sessionStorage.setItem(`qr-parking-bookings-${userId}`, JSON.stringify(bookings))
+  } catch {
+    // Local component state remains functional when session storage is unavailable.
+  }
+}
 
 export default function MyBookingsPage() {
-  const navigate = useNavigate()
   const { currentUser } = useAuth()
-  const [bookings, setBookings] = useState(() => getUserBookings(currentUser.id))
-  const [filters, setFilters] = useState({
-    startDate: '',
-    endDate: '',
-    status: 'All',
-    siteId: 'All',
-    search: '',
-  })
-  const [page, setPage] = useState(1)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [bookings, setBookings] = useState(() => loadBookings(currentUser.id))
+  const [activeTab, setActiveTab] = useState('All')
+  const [filters, setFilters] = useState({ search: '', status: 'All', startDate: '', endDate: '' })
+  const [detailBooking, setDetailBooking] = useState(null)
+  const [qrBooking, setQrBooking] = useState(null)
   const [cancelTarget, setCancelTarget] = useState(null)
-  const [toast, setToast] = useState('')
+  const [toast, setToast] = useState(location.state?.message || '')
   const toastTimer = useRef(null)
 
-  useEffect(() => () => window.clearTimeout(toastTimer.current), [])
-  useEffect(() => setBookings(getUserBookings(currentUser.id)), [currentUser.id])
+  useEffect(() => {
+    const next = loadBookings(currentUser.id)
+    const incoming = location.state?.createdBooking
+    if (incoming && incoming.userId === currentUser.id && !next.some((booking) => booking.id === incoming.id)) {
+      next.unshift(normalizeBooking(incoming))
+      saveBookings(currentUser.id, next)
+    }
+    setBookings(next)
+  }, [currentUser.id, location.state])
 
-  const summary = useMemo(() => ({
+  useEffect(() => {
+    if (!toast) return undefined
+    window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(''), 3500)
+    return () => window.clearTimeout(toastTimer.current)
+  }, [toast])
+
+  const counts = useMemo(() => ({
     total: bookings.length,
-    active: bookings.filter((booking) => ['Reserved', 'Active'].includes(booking.status)).length,
+    active: bookings.filter((booking) => booking.status === 'Active').length,
+    reserved: bookings.filter((booking) => booking.status === 'Reserved').length,
     completed: bookings.filter((booking) => booking.status === 'Completed').length,
     cancelled: bookings.filter((booking) => booking.status === 'Cancelled').length,
   }), [bookings])
@@ -49,209 +76,101 @@ export default function MyBookingsPage() {
   const filteredBookings = useMemo(() => {
     const query = filters.search.trim().toLowerCase()
     return bookings.filter((booking) => (
-      (!filters.startDate || booking.date >= filters.startDate)
-      && (!filters.endDate || booking.date <= filters.endDate)
+      (activeTab === 'All' || booking.status === activeTab)
       && (filters.status === 'All' || booking.status === filters.status)
-      && (filters.siteId === 'All' || booking.siteId === filters.siteId)
-      && (!query || booking.id.toLowerCase().includes(query) || String(booking.slotNumber).toLowerCase().includes(query))
+      && (!filters.startDate || booking.date >= filters.startDate)
+      && (!filters.endDate || booking.date <= filters.endDate)
+      && (!query || [booking.id, booking.siteName, booking.vehiclePlate].some((value) => String(value).toLowerCase().includes(query)))
     ))
-  }, [bookings, filters])
-
-  const pageCount = Math.max(1, Math.ceil(filteredBookings.length / PAGE_SIZE))
-  const visibleBookings = filteredBookings.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-
-  useEffect(() => setPage(1), [filters])
-  useEffect(() => setPage((current) => Math.min(current, pageCount)), [pageCount])
-
-  const resetFilters = () => setFilters({
-    startDate: '',
-    endDate: '',
-    status: 'All',
-    siteId: 'All',
-    search: '',
-  })
+  }, [activeTab, bookings, filters])
 
   const cancelBooking = () => {
-    setBookings((current) => current.map((booking) => (
-      booking.id === cancelTarget.id ? { ...booking, status: 'Cancelled' } : booking
-    )))
+    const next = bookings.map((booking) => booking.id === cancelTarget.id ? { ...booking, status: 'Cancelled' } : booking)
+    setBookings(next)
+    saveBookings(currentUser.id, next)
+    if (detailBooking?.id === cancelTarget.id) setDetailBooking((current) => ({ ...current, status: 'Cancelled' }))
     setCancelTarget(null)
     setToast('Booking cancelled successfully.')
-    window.clearTimeout(toastTimer.current)
-    toastTimer.current = window.setTimeout(() => setToast(''), 3000)
   }
+
+  const actionButton = (event, callback) => {
+    event.stopPropagation()
+    callback()
+  }
+
+  const columns = [
+    { key: 'id', label: 'Booking ID' }, { key: 'siteName', label: 'Parking Site' },
+    { key: 'slotNumber', label: 'Slot' }, { key: 'vehiclePlate', label: 'Vehicle Plate' },
+    { key: 'startTime', label: 'Start Time', render: (_, booking) => `${booking.date} ${booking.startTime}` },
+    { key: 'duration', label: 'Estimated Duration' },
+    { key: 'status', label: 'Status', render: (status) => <StatusBadge status={status} /> },
+    { key: 'estimatedFee', label: 'Estimated Fee', render: (fee) => money.format(fee) },
+    {
+      key: 'actions', label: 'Actions', render: (_, booking) => (
+        <div className="flex min-w-48 flex-wrap gap-1.5">
+          <button type="button" onClick={(event) => actionButton(event, () => setDetailBooking(booking))} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200">View Details</button>
+          <button type="button" onClick={(event) => actionButton(event, () => setQrBooking(booking))} className="rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-bold text-primary hover:bg-primary/20">Show QR Ticket</button>
+          {booking.status === 'Reserved' && <button type="button" onClick={(event) => actionButton(event, () => setCancelTarget(booking))} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100">Cancel Booking</button>}
+          {['Completed', 'Cancelled'].includes(booking.status) && <button type="button" onClick={(event) => actionButton(event, () => navigate(`/user/book?slotId=${encodeURIComponent(booking.slotId)}`))} className="rounded-lg bg-green-50 px-2.5 py-1.5 text-xs font-bold text-green-700 hover:bg-green-100">Rebook</button>}
+        </div>
+      ),
+    },
+  ]
+
+  const site = detailBooking ? parkingSites.find((item) => item.id === detailBooking.siteId) : null
+  const session = detailBooking ? parkingSessions.find((item) => item.bookingId === detailBooking.id) : null
 
   return (
     <div className="w-full space-y-6">
-      <div>
-        <nav aria-label="Breadcrumb" className="text-sm font-medium text-slate-500">
-          <span>QR Parking Booking System</span>
-          <span className="mx-2 text-slate-300">›</span>
-          <span className="text-primary">My Bookings</span>
-        </nav>
-        <h1 className="mt-2 text-3xl font-bold text-slate-900">My Bookings</h1>
+      <div><p className="text-sm font-medium text-slate-500">Manage reservations and parking activity</p><h1 className="mt-1 text-3xl font-bold text-slate-900">My Bookings</h1></div>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <Kpi title="Total Bookings" value={counts.total} icon="▣" color="bg-primary/10 text-primary" />
+        <Kpi title="Active Booking" value={counts.active} icon="◉" color="bg-blue-100 text-blue-600" />
+        <Kpi title="Reserved Bookings" value={counts.reserved} icon="◆" color="bg-orange-100 text-orange-600" />
+        <Kpi title="Completed Bookings" value={counts.completed} icon="✓" color="bg-green-100 text-green-600" />
+        <Kpi title="Cancelled Bookings" value={counts.cancelled} icon="×" color="bg-red-100 text-red-600" />
+      </section>
+
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-slate-200 p-1">
+        {tabs.map((tab) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`whitespace-nowrap rounded-lg px-5 py-2.5 text-sm font-bold transition ${activeTab === tab ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{tab}</button>)}
       </div>
 
-      <section aria-label="Booking summary" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title="Total Bookings" value={summary.total} icon="▣" color="bg-primary/10 text-primary" />
-        <SummaryCard title="Active / Reserved" value={summary.active} icon="◉" color="bg-orange-100 text-orange-600" />
-        <SummaryCard title="Completed" value={summary.completed} icon="✓" color="bg-green-100 text-green-600" />
-        <SummaryCard title="Cancelled" value={summary.cancelled} icon="×" color="bg-red-100 text-red-600" />
+      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_180px_170px_170px_auto]">
+        <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search Booking ID, parking site, or vehicle plate" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+        <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-primary"><option value="All">All statuses</option>{tabs.slice(1).map((status) => <option key={status}>{status}</option>)}</select>
+        <DateInput label="Start date" value={filters.startDate} onChange={(value) => setFilters((current) => ({ ...current, startDate: value }))} />
+        <DateInput label="End date" value={filters.endDate} onChange={(value) => setFilters((current) => ({ ...current, endDate: value }))} />
+        <button type="button" onClick={() => setFilters({ search: '', status: 'All', startDate: '', endDate: '' })} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Reset</button>
       </section>
 
-      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[165px_165px_180px_220px_minmax(240px,1fr)_auto]">
-        <DateInput
-          label="Start date"
-          value={filters.startDate}
-          onChange={(value) => setFilters((current) => ({ ...current, startDate: value }))}
-        />
-        <DateInput
-          label="End date"
-          value={filters.endDate}
-          onChange={(value) => setFilters((current) => ({ ...current, endDate: value }))}
-        />
-        <select
-          aria-label="Filter by status"
-          value={filters.status}
-          onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-          className="self-end rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-primary"
-        >
-          <option value="All">All statuses</option>
-          <option>Reserved</option>
-          <option>Active</option>
-          <option>Completed</option>
-          <option>Cancelled</option>
-        </select>
-        <select
-          aria-label="Filter by parking site"
-          value={filters.siteId}
-          onChange={(event) => setFilters((current) => ({ ...current, siteId: event.target.value }))}
-          className="self-end rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-primary"
-        >
-          <option value="All">All parking sites</option>
-          {parkingSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-        </select>
-        <input
-          value={filters.search}
-          onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
-          placeholder="Search Booking ID or slot"
-          className="self-end rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-        />
-        <button
-          type="button"
-          onClick={resetFilters}
-          className="self-end rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-        >
-          Reset Filters
-        </button>
-      </section>
+      <DataTable columns={columns} data={filteredBookings} onRowClick={setDetailBooking} />
 
-      {visibleBookings.length ? (
-        <section className="space-y-4">
-          {visibleBookings.map((booking) => {
-            const site = parkingSites.find((item) => item.id === booking.siteId)
-            return (
-              <article key={booking.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="grid gap-5 p-5 md:grid-cols-[3fr_4fr_3fr] md:p-6">
-                  <div>
-                    <h2 className="font-bold text-slate-900">{booking.siteName}</h2>
-                    <p className="mt-1 text-sm leading-5 text-slate-500">{site ? `${site.address}, ${site.area}` : 'Address unavailable'}</p>
-                    <p className="mt-4 text-sm font-semibold text-slate-700">{booking.date} · {booking.startTime}</p>
-                  </div>
+      <DetailDrawer isOpen={Boolean(detailBooking)} onClose={() => setDetailBooking(null)} title={detailBooking?.id || 'Booking Details'}>
+        {detailBooking && <div className="space-y-6"><StatusBadge status={detailBooking.status} /><section><h3 className="mb-3 font-bold text-slate-900">Booking Information</h3><dl className="space-y-2"><Detail label="Booking ID" value={detailBooking.id} /><Detail label="Parking site" value={detailBooking.siteName} /><Detail label="Address" value={site?.address || '—'} /><Detail label="Slot number" value={detailBooking.slotNumber} /><Detail label="Vehicle plate" value={detailBooking.vehiclePlate} /><Detail label="Created time" value={detailBooking.createdAt ? new Date(detailBooking.createdAt).toLocaleString('en-GB') : `${detailBooking.date} ${detailBooking.startTime}`} /><Detail label="Start time" value={`${detailBooking.date} ${detailBooking.startTime}`} /><Detail label="Entry time" value={session?.entryTime ? new Date(session.entryTime).toLocaleString('en-GB') : 'Pending'} /><Detail label="Exit time" value={session?.exitTime ? new Date(session.exitTime).toLocaleString('en-GB') : 'Pending'} /><Detail label="Duration" value={session?.duration || detailBooking.duration} /><Detail label="Fee" value={money.format(session?.fee ?? detailBooking.estimatedFee)} /><Detail label="Payment method" value={session?.paymentMethod || 'Wallet'} /></dl></section><Timeline status={detailBooking.status} /><button type="button" onClick={() => setQrBooking(detailBooking)} className="w-full rounded-xl bg-primary px-5 py-3 font-bold text-white hover:bg-primary/90">Show QR Ticket</button></div>}
+      </DetailDrawer>
 
-                  <div className="border-slate-100 md:border-x md:px-5">
-                    <span className="inline-flex rounded-full bg-primary px-3 py-1 text-xs font-bold text-white">Slot {booking.slotNumber}</span>
-                    <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                      <BookingDetail label="Vehicle Plate" value={booking.vehiclePlate} />
-                      <BookingDetail label="Duration" value={booking.duration} />
-                      <BookingDetail label="Estimated Fee" value={money.format(booking.estimatedFee)} />
-                    </dl>
-                  </div>
+      <Modal isOpen={Boolean(qrBooking)} onClose={() => setQrBooking(null)} title="QR Ticket" size="lg">
+        {qrBooking && <div className="space-y-5 text-center"><QRCodeDisplay value={qrBooking.id} label={qrBooking.id} size={240} /><div className="grid gap-3 text-left sm:grid-cols-2"><Detail label="Parking Site" value={qrBooking.siteName} /><Detail label="Slot Number" value={qrBooking.slotNumber} /><Detail label="Vehicle Plate" value={qrBooking.vehiclePlate} /><div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p><div className="mt-2"><StatusBadge status={qrBooking.status} /></div></div></div><p className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900">Show this QR code to Handler at entry and exit.</p><button type="button" onClick={() => navigate(`/user/qr-ticket?bookingId=${encodeURIComponent(qrBooking.id)}`, { state: { booking: qrBooking } })} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white">Open Full Ticket</button></div>}
+      </Modal>
 
-                  <div className="flex flex-col items-start md:items-end">
-                    <StatusBadge status={booking.status} />
-                    <div className="mt-4 flex w-full flex-col gap-2 md:max-w-48">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/user/qr-ticket?bookingId=${encodeURIComponent(booking.id)}`)}
-                        className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white hover:bg-primary/90"
-                      >
-                        View QR Ticket
-                      </button>
-                      {booking.status === 'Reserved' && (
-                        <button
-                          type="button"
-                          onClick={() => setCancelTarget(booking)}
-                          className="rounded-xl border border-red-500 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50"
-                        >
-                          Cancel Booking
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <BookingProgress status={booking.status} />
-              </article>
-            )
-          })}
-        </section>
-      ) : (
-        <EmptyState onSearch={() => navigate('/user/search')} />
-      )}
-
-      {filteredBookings.length > 0 && (
-        <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-          <p className="text-sm text-slate-500">Page {page} of {pageCount}</p>
-          <div className="flex gap-2">
-            <button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
-            <button type="button" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
-          </div>
-        </div>
-      )}
-
-      <ConfirmModal
-        isOpen={Boolean(cancelTarget)}
-        onClose={() => setCancelTarget(null)}
-        onConfirm={cancelBooking}
-        title="Cancel Booking"
-        message={`Cancel booking ${cancelTarget?.id || ''} at ${cancelTarget?.siteName || ''}?`}
-        confirmLabel="Cancel Booking"
-        confirmColor="red"
-      />
-
-      {toast && <div role="status" className="fixed bottom-6 right-6 z-50 rounded-xl bg-green-600 px-5 py-4 font-semibold text-white shadow-2xl">✓ {toast}</div>}
+      <ConfirmModal isOpen={Boolean(cancelTarget)} onClose={() => setCancelTarget(null)} onConfirm={cancelBooking} title="Cancel Booking" message={`Cancel booking ${cancelTarget?.id || ''} at ${cancelTarget?.siteName || ''}?`} confirmLabel="Cancel Booking" confirmColor="red" />
+      {toast && <div role="status" className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl bg-green-600 px-5 py-4 font-semibold text-white shadow-2xl">✓ {toast}</div>}
     </div>
   )
 }
 
-function SummaryCard({ title, value, icon, color }) {
-  return <article className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div><p className="text-sm font-medium text-slate-500">{title}</p><p className="mt-2 text-3xl font-bold text-slate-900">{value}</p></div><span className={`grid h-12 w-12 place-items-center rounded-xl text-xl font-bold ${color}`}>{icon}</span></article>
-}
+function Kpi({ title, value, icon, color }) { return <article className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div><p className="text-sm font-medium text-slate-500">{title}</p><p className="mt-2 text-3xl font-bold text-slate-900">{value}</p></div><span className={`grid h-11 w-11 place-items-center rounded-xl text-xl font-bold ${color}`}>{icon}</span></article> }
+function DateInput({ label, value, onChange }) { return <label className="text-xs font-semibold text-slate-600">{label}<input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-primary" /></label> }
+function Detail({ label, value }) { return <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-1 break-words text-sm font-bold text-slate-900">{value}</dd></div> }
 
-function DateInput({ label, value, onChange }) {
-  return <label className="text-xs font-semibold text-slate-600">{label}<input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-primary" /></label>
-}
-
-function BookingDetail({ label, value }) {
-  return <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt><dd className="mt-1 font-bold text-slate-800">{value}</dd></div>
-}
-
-function BookingProgress({ status }) {
-  const currentStep = statusSteps.indexOf(status)
-  return <div className="border-t border-slate-100 px-5 py-3 md:px-6"><div className="grid grid-cols-3 gap-2">{statusSteps.map((step, index) => <div key={step}><div className={`h-1.5 rounded-full ${status === 'Cancelled' ? 'bg-slate-200' : index <= currentStep ? 'bg-primary' : 'bg-slate-200'}`} /><p className={`mt-1.5 text-center text-[10px] font-bold uppercase tracking-wide ${index <= currentStep && status !== 'Cancelled' ? 'text-primary' : 'text-slate-400'}`}>{step}</p></div>)}</div></div>
-}
-
-function EmptyState({ onSearch }) {
-  return (
-    <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
-      <svg viewBox="0 0 120 120" aria-hidden="true" className="mx-auto h-28 w-28 text-primary">
-        <rect x="20" y="42" width="80" height="46" rx="12" fill="currentColor" opacity="0.12" />
-        <path d="M34 66h52l-8-18H42l-8 18Zm8 16a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm36 0a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z" fill="currentColor" />
-        <path d="M52 24h16a12 12 0 0 1 0 24H52V24Zm0 0v48" fill="none" stroke="currentColor" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <h2 className="mt-4 text-xl font-bold text-slate-900">No bookings found</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">Search for nearby parking and book a slot to get started.</p>
-      <button type="button" onClick={onSearch} className="mt-6 rounded-xl bg-primary px-6 py-3 font-bold text-white hover:bg-primary/90">Search Parking</button>
-    </section>
-  )
+function Timeline({ status }) {
+  const completed = status === 'Completed'
+  const active = status === 'Active'
+  const steps = [
+    ['Booking Created', true], ['Waiting for Entry', true], ['Vehicle Entered', active || completed],
+    ['Vehicle Exited', completed], ['Payment Completed', completed],
+  ]
+  const currentIndex = steps.findIndex(([, done]) => !done)
+  return <section><h3 className="mb-4 font-bold text-slate-900">Status Timeline</h3>{steps.map(([label, done], index) => <div key={label} className="relative flex gap-3 pb-5 last:pb-0">{index < steps.length - 1 && <span className={`absolute bottom-0 left-3 top-6 w-px ${done ? 'bg-green-400' : 'bg-slate-200'}`} />}<span className={`relative z-10 grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${done ? 'bg-green-500 text-white' : index === currentIndex ? 'animate-pulse bg-orange-500 text-white' : 'bg-slate-200 text-slate-400'}`}>{done ? '✓' : index === currentIndex ? '•' : ''}</span><p className={`text-sm font-bold ${done || index === currentIndex ? 'text-slate-900' : 'text-slate-400'}`}>{label}</p></div>)}</section>
 }

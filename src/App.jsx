@@ -21,6 +21,7 @@ import WalletPage from './pages/user/WalletPage'
 import UserParkingHistoryPage from './pages/user/UserParkingHistoryPage'
 import UserRechargeHistoryPage from './pages/user/UserRechargeHistoryPage'
 import UserFeedbackPage from './pages/user/UserFeedbackPage'
+import MyBookingsPage from './pages/user/MyBookingsPage'
 import LoginPage from './pages/auth/LoginPage'
 import ProfilePage from './pages/auth/ProfilePage'
 import RegisterPage from './pages/auth/RegisterPage'
@@ -36,7 +37,7 @@ function PlaceholderPage({ title }) {
 
 const adminRoutes = [['', 'Dashboard'], ['users', 'User Management'], ['parking-slots', 'Parking Slot Management'], ['parking-history', 'Parking History'], ['recharge-history', 'Recharge History'], ['feedback', 'Feedback'], ['settings', 'Settings']]
 const handlerRoutes = [['', 'Dashboard'], ['scan', 'Scan QR Entry/Exit'], ['scan-qr', 'Scan QR Entry/Exit'], ['onsite-booking', 'Onsite Booking'], ['recharge-wallet', 'Recharge User Wallet'], ['active-sessions', 'Active Sessions'], ['parking-history', 'Parking History'], ['recharge-history', 'Recharge History'], ['profile', 'Profile']]
-const userRoutes = [['', 'Home'], ['search', 'Search Parking'], ['search-parking', 'Search Parking'], ['slot-selection', 'Slot Selection'], ['booking', 'Confirm Booking'], ['bookings', 'My Bookings'], ['qr-ticket', 'QR Ticket'], ['wallet', 'Wallet & Recharge'], ['parking-history', 'Parking History'], ['recharge-history', 'Recharge History'], ['profile', 'Profile'], ['feedback', 'Feedback']]
+const userRoutes = [['', 'Home'], ['search', 'Search Parking'], ['search-parking', 'Search Parking'], ['slots', 'Slot Selection'], ['slot-selection', 'Slot Selection'], ['book', 'Confirm Booking'], ['booking', 'Confirm Booking'], ['bookings', 'My Bookings'], ['qr-ticket', 'QR Ticket'], ['wallet', 'Wallet & Recharge'], ['parking-history', 'Parking History'], ['recharge-history', 'Recharge History'], ['profile', 'Profile'], ['feedback', 'Feedback']]
 
 function roleRoute(prefix, pages) {
   return (
@@ -72,10 +73,12 @@ function roleRoute(prefix, pages) {
                                     ? <UserHomePage />
                                     : prefix === 'user' && ['search', 'search-parking'].includes(path)
                                       ? <SearchParkingPage />
-                                      : prefix === 'user' && path === 'slot-selection'
+                                      : prefix === 'user' && ['slots', 'slot-selection'].includes(path)
                                         ? <SlotSelectionPage />
-                                        : prefix === 'user' && path === 'booking'
+                                        : prefix === 'user' && ['book', 'booking'].includes(path)
                                           ? <BookingPage />
+                                          : prefix === 'user' && path === 'bookings'
+                                            ? <MyBookingsPage />
                                           : prefix === 'user' && path === 'qr-ticket'
                                             ? <QRTicketPage />
                                             : prefix === 'user' && path === 'wallet'

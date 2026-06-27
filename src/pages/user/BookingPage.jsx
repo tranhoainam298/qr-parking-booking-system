@@ -33,8 +33,18 @@ export default function BookingPage() {
   const confirmBooking = () => {
     const confirmed = { ...pendingBooking, createdAt: new Date().toISOString() }
     setLocalBookings((current) => [confirmed, ...current])
+    try {
+      const key = `qr-parking-bookings-${user.id}`
+      const stored = JSON.parse(window.sessionStorage.getItem(key) || 'null')
+      const existing = Array.isArray(stored)
+        ? stored
+        : []
+      window.sessionStorage.setItem(key, JSON.stringify([confirmed, ...existing.filter((booking) => booking.id !== confirmed.id)]))
+    } catch {
+      // Route state still carries the new booking when session storage is unavailable.
+    }
     setPendingBooking(null)
-    navigate('/user/qr-ticket', { state: { booking: confirmed } })
+    navigate('/user/bookings', { state: { createdBooking: confirmed, message: 'Booking confirmed. Your QR ticket is now available.' } })
   }
 
   return (
