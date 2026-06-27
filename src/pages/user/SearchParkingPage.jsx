@@ -75,7 +75,7 @@ export default function SearchParkingPage() {
   }, [areaFilter, availableOnly, postalFilter, searchRadius, siteSearch, sites, sitesWithDistance, userLocation])
 
   const areas = useMemo(() => [...new Set(sites.map((site) => site.area))].sort(), [sites])
-  const openSlots = (siteId) => navigate(`/user/slot-selection?siteId=${encodeURIComponent(siteId)}`)
+  const openSlots = (siteId) => navigate(`/user/slots?siteId=${encodeURIComponent(siteId)}`)
 
   return (
     <div className="w-full space-y-6">
