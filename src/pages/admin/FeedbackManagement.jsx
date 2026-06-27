@@ -3,24 +3,28 @@ import DataTable from '../../components/shared/DataTable'
 import KpiCard from '../../components/shared/KpiCard'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { feedbacks as mockFeedbacks, users } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+import { respondToFeedback as apiRespondToFeedback, markFeedbackResolved as apiMarkFeedbackResolved } from '../../api/feedbackApi'
 
 function Stars({ rating }) {
   return <span aria-label={`${rating} out of 5 stars`} className="whitespace-nowrap text-base tracking-tight"><span className="text-yellow-400">{'★'.repeat(rating)}</span><span className="text-slate-300">{'★'.repeat(5 - rating)}</span></span>
 }
 
 export default function FeedbackManagement() {
-  const [feedbacks, setFeedbacks] = useState(() => mockFeedbacks.map((feedback, index) => ({
+  const state = getState()
+  const users = state.users
+
+  const [feedbacks, setFeedbacks] = useState(() => state.feedbacks.map((feedback, index) => ({
     ...feedback,
-    status: index < 2 ? 'New' : 'Resolved',
-    adminResponse: '',
+    status: feedback.status || (index < 2 ? 'New' : 'Resolved'),
+    adminResponse: feedback.adminResponse || '',
   })))
   const [selected, setSelected] = useState(null)
   const [response, setResponse] = useState('')
 
   const counts = useMemo(() => ({
     total: feedbacks.length,
-    new: feedbacks.filter((feedback) => feedback.status === 'New').length,
+    new: feedbacks.filter((feedback) => feedback.status === 'New' || feedback.status === 'Submitted').length,
     resolved: feedbacks.filter((feedback) => feedback.status === 'Resolved').length,
   }), [feedbacks])
 
@@ -29,21 +33,27 @@ export default function FeedbackManagement() {
     setResponse(feedback.adminResponse || '')
   }
 
-  const markResolved = () => {
-    const updated = { ...selected, status: 'Resolved' }
-    setFeedbacks((current) => current.map((feedback) => feedback.id === selected.id ? updated : feedback))
-    setSelected(updated)
+  const markResolved = async () => {
+    const result = await apiMarkFeedbackResolved(selected.id)
+    if (result.success) {
+      const updated = { ...selected, status: 'Resolved' }
+      setFeedbacks((current) => current.map((feedback) => feedback.id === selected.id ? updated : feedback))
+      setSelected(updated)
+    }
   }
 
-  const sendResponse = () => {
+  const sendResponse = async () => {
     if (!response.trim()) {
       window.alert('Enter an admin response before sending.')
       return
     }
-    const updated = { ...selected, adminResponse: response.trim() }
-    setFeedbacks((current) => current.map((feedback) => feedback.id === selected.id ? updated : feedback))
-    setSelected(updated)
-    window.alert('Response queued successfully.')
+    const result = await apiRespondToFeedback(selected.id, response.trim())
+    if (result.success) {
+      const updated = { ...selected, adminResponse: response.trim(), status: 'Reviewed' }
+      setFeedbacks((current) => current.map((feedback) => feedback.id === selected.id ? updated : feedback))
+      setSelected(updated)
+      window.alert('Response sent successfully.')
+    }
   }
 
   const columns = [

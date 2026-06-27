@@ -5,13 +5,17 @@ import QRScannerPlaceholder from '../../components/shared/QRScannerPlaceholder'
 import StatusBadge from '../../components/shared/StatusBadge'
 import WalletCard from '../../components/shared/WalletCard'
 import { useAuth } from '../../context/AuthContext'
-import { users as mockUsers, walletTransactions } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+import { rechargeWalletByHandlerCash as apiRechargeWalletByHandlerCash } from '../../api/walletApi'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 
 export default function RechargeWalletPage() {
   const { currentUser: handler } = useAuth()
-  const [users, setUsers] = useState(mockUsers)
+  const state = getState()
+  const users = state.users
+  const walletTransactions = state.walletTransactions
+
   const [searchMode, setSearchMode] = useState('qr')
   const [query, setQuery] = useState('')
   const [searchError, setSearchError] = useState('')
@@ -33,7 +37,9 @@ export default function RechargeWalletPage() {
       setSearchError('No matching user found.')
       return
     }
-    setSelectedUser(user)
+    // Make sure we have the live wallet balance
+    const liveWallet = getState().wallets[user.id]
+    setSelectedUser({ ...user, walletBalance: liveWallet?.balance ?? user.walletBalance })
     setSearchError('')
     setAmount('')
     setNote('')
@@ -53,37 +59,39 @@ export default function RechargeWalletPage() {
     setConfirmOpen(true)
   }
 
-  const confirmRecharge = () => {
+  const confirmRecharge = async () => {
     const rechargeAmount = Number(amount)
-    const newBalance = selectedUser.walletBalance + rechargeAmount
-    const transaction = {
-      id: `TXN-H-${Date.now().toString().slice(-8)}`,
+    const result = await apiRechargeWalletByHandlerCash({
       userId: selectedUser.id,
-      userName: selectedUser.name,
-      amount: rechargeAmount,
-      newBalance,
-      method: 'Cash',
       handlerId: handler.id,
-      handlerName: handler.name,
-      date: new Date().toISOString(),
-      status: 'Successful',
+      amount: rechargeAmount,
       note,
+    })
+    if (result.success) {
+      setSelectedUser((current) => ({ ...current, walletBalance: result.transaction.newBalance }))
+      setLocalTransactions((current) => [result.transaction, ...current])
+      setReceipt({ ...result.transaction, status: 'Successful' })
+      setConfirmOpen(false)
+      setAmount('')
+      setNote('')
+    } else {
+      window.alert(result.message || 'Recharge failed')
+      setConfirmOpen(false)
     }
-    setUsers((current) => current.map((user) => user.id === selectedUser.id ? { ...user, walletBalance: newBalance } : user))
-    setSelectedUser((current) => ({ ...current, walletBalance: newBalance }))
-    setLocalTransactions((current) => [transaction, ...current])
-    setReceipt(transaction)
-    setConfirmOpen(false)
-    setAmount('')
-    setNote('')
   }
 
   const recentHistory = useMemo(() => {
     const existing = walletTransactions
       .filter((transaction) => transaction.handlerId === handler.id)
-      .map((transaction) => ({ ...transaction, newBalance: (mockUsers.find((user) => user.id === transaction.userId)?.walletBalance || 0) + transaction.amount }))
+      .map((transaction) => {
+        const u = users.find((user) => user.id === transaction.userId)
+        return {
+          ...transaction,
+          newBalance: (getState().wallets[transaction.userId]?.balance ?? u?.walletBalance ?? 0),
+        }
+      })
     return [...localTransactions, ...existing].slice(0, 5)
-  }, [handler.id, localTransactions])
+  }, [handler.id, localTransactions, walletTransactions, users])
 
   const columns = [
     { key: 'userName', label: 'User' },

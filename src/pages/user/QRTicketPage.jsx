@@ -4,13 +4,16 @@ import ConfirmModal from '../../components/shared/ConfirmModal'
 import QRCodeDisplay from '../../components/shared/QRCodeDisplay'
 import StatusBadge from '../../components/shared/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
-import { bookings, users } from '../../data/mockData'
-
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 
 export default function QRTicketPage() {
   const location = useLocation()
   const { currentUser } = useAuth()
+
+  const _s = getState()
+  const bookings = _s.bookings
+  const users = _s.users
+
   const fallback = bookings.find((booking) => booking.userId === currentUser.id) || bookings[0]
   const initialBooking = location.state?.booking || { ...fallback, status: fallback.status === 'Confirmed' ? 'Reserved' : fallback.status }
   const [booking, setBooking] = useState(initialBooking)

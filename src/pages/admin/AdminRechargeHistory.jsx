@@ -3,14 +3,18 @@ import DataTable from '../../components/shared/DataTable'
 import KpiCard from '../../components/shared/KpiCard'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { handlers, walletTransactions } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
-const displayMethod = (transaction) => transaction.handlerId ? 'Handler' : transaction.method === 'Cash' ? 'Cash' : 'Card'
-const handlerName = (handlerId) => handlers.find((handler) => handler.id === handlerId)?.name || '—'
 
 export default function AdminRechargeHistory() {
-  const transactions = useMemo(() => walletTransactions.map((transaction) => ({ ...transaction, displayMethod: displayMethod(transaction), handlerName: handlerName(transaction.handlerId) })), [])
+  const state = getState()
+  const handlers = state.handlers
+  const walletTransactions = state.walletTransactions
+
+  const displayMethod = (transaction) => transaction.handlerId ? 'Handler' : transaction.method === 'Cash' ? 'Cash' : 'Card'
+  const handlerName = (handlerId) => handlers.find((handler) => handler.id === handlerId)?.name || '—'
+
+  const transactions = useMemo(() => walletTransactions.map((transaction) => ({ ...transaction, displayMethod: displayMethod(transaction), handlerName: handlerName(transaction.handlerId) })), [walletTransactions, handlers])
   const [filters, setFilters] = useState({ method: 'All', status: 'All', startDate: '', endDate: '' })
   const [selected, setSelected] = useState(null)
 

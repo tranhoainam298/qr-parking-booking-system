@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ParkingMap from '../../components/shared/ParkingMap'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { parkingSites } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+
 import { getUserLocation, haversineDistance, reverseGeocode } from '../../utils/geoUtils'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 
 export default function SearchParkingPage() {
   const navigate = useNavigate()
+  const parkingSites = getState().parkingSites
   const [userLocation, setUserLocation] = useState(null)
   const [gpsStatus, setGpsStatus] = useState('idle')
   const [gpsAddress, setGpsAddress] = useState('')

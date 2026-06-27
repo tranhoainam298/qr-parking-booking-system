@@ -3,13 +3,19 @@ import DataTable from '../../components/shared/DataTable'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
-import { bookings, parkingSessions, parkingSites, parkingSlots } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const dateTime = (value) => value ? new Date(value).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '—'
 
 export default function UserParkingHistoryPage() {
   const { currentUser } = useAuth()
+  
+  const _s = getState()
+  const bookings = _s.bookings
+  const parkingSessions = _s.parkingSessions
+  const parkingSites = _s.parkingSites
+  const parkingSlots = _s.parkingSlots
+
   const [filters, setFilters] = useState({ startDate: '', endDate: '', status: 'All', site: 'All' })
   const [selected, setSelected] = useState(null)
   const data = useMemo(() => parkingSessions.filter((session) => {

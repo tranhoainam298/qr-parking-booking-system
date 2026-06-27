@@ -1,29 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import StatusBadge from '../../components/shared/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
-import { feedbacks as mockFeedbacks, parkingSites } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+import { submitFeedback as apiSubmitFeedback } from '../../api/feedbackApi'
 
 export default function UserFeedbackPage() {
   const { currentUser } = useAuth()
-  const [feedbacks, setFeedbacks] = useState(() => mockFeedbacks.filter((item) => item.userId === currentUser.id).map((item, index) => ({ ...item, status: ['Submitted', 'Reviewed', 'Resolved'][index % 3] })))
-  const [form, setForm] = useState({ siteId: parkingSites[0].id, rating: 0, message: '' })
+  
+  const _s = getState()
+  const mockFeedbacks = _s.feedbacks
+  const parkingSites = _s.parkingSites
+
+  const [feedbacks, setFeedbacks] = useState(() => mockFeedbacks.filter((item) => item.userId === currentUser.id).map((item, index) => ({ ...item, status: item.status || ['Submitted', 'Reviewed', 'Resolved'][index % 3] })))
+  const [form, setForm] = useState({ siteId: parkingSites[0]?.id || '', rating: 0, message: '' })
   const [toast, setToast] = useState('')
   const timer = useRef(null)
+  
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
-  const selectedSite = useMemo(() => parkingSites.find((site) => site.id === form.siteId), [form.siteId])
-  const submit = (event) => {
+  const selectedSite = useMemo(() => parkingSites.find((site) => site.id === form.siteId), [form.siteId, parkingSites])
+  
+  const submit = async (event) => {
     event.preventDefault()
     if (!form.rating || !form.message.trim()) {
       window.alert('Choose a star rating and enter your feedback.')
       return
     }
-    const feedback = { id: `FDB-${Date.now().toString().slice(-6)}`, userId: currentUser.id, userName: currentUser.name, siteName: selectedSite.name, rating: form.rating, message: form.message.trim(), date: new Date().toISOString().slice(0, 10), status: 'Submitted' }
-    setFeedbacks((current) => [feedback, ...current])
-    setForm((current) => ({ ...current, rating: 0, message: '' }))
-    setToast('Feedback submitted successfully.')
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => setToast(''), 3000)
+    
+    const result = await apiSubmitFeedback({
+      userId: currentUser.id,
+      userName: currentUser.name,
+      siteId: form.siteId,
+      rating: form.rating,
+      message: form.message.trim()
+    })
+
+    if (result.success) {
+      setFeedbacks((current) => [result.feedback, ...current])
+      setForm((current) => ({ ...current, rating: 0, message: '' }))
+      setToast('Feedback submitted successfully.')
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setToast(''), 3000)
+    }
   }
 
   return (

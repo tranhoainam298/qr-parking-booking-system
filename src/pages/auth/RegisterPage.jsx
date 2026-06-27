@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { useAuth } from '../../context/AuthContext'
+import { registerUser as apiRegisterUser } from '../../api/authApi'
 
 const initialForm = { fullName: '', email: '', phone: '', vehiclePlate: '', password: '', confirmPassword: '' }
 
@@ -9,11 +10,13 @@ export default function RegisterPage() {
   const [form, setForm] = useState(initialForm)
   const [errors, setErrors] = useState({})
   const [successOpen, setSuccessOpen] = useState(false)
-  const { setRole } = useAuth()
+  const [registeredUser, setRegisteredUser] = useState(null)
+  const { loginUser } = useAuth()
   const navigate = useNavigate()
 
   const update = (event) => setForm((current) => ({ ...current, [event.target.name]: event.target.value }))
-  const submit = (event) => {
+  
+  const submit = async (event) => {
     event.preventDefault()
     const nextErrors = {}
     if (form.fullName.trim().length < 2) nextErrors.fullName = 'Enter your full name.'
@@ -23,12 +26,29 @@ export default function RegisterPage() {
     if (form.password.length < 6) nextErrors.password = 'Use at least 6 characters.'
     if (form.confirmPassword !== form.password) nextErrors.confirmPassword = 'Passwords do not match.'
     setErrors(nextErrors)
-    if (!Object.keys(nextErrors).length) setSuccessOpen(true)
+    if (Object.keys(nextErrors).length) return
+
+    const result = await apiRegisterUser({
+      fullName: form.fullName,
+      email: form.email,
+      phone: form.phone,
+      vehiclePlate: form.vehiclePlate,
+      password: form.password,
+    })
+
+    if (result.success) {
+      setRegisteredUser(result.user)
+      setSuccessOpen(true)
+    } else {
+      setErrors({ email: result.message || 'Registration failed.' })
+    }
   }
 
   const finishRegistration = () => {
     setSuccessOpen(false)
-    setRole('User')
+    if (registeredUser) {
+      loginUser(registeredUser, 'User')
+    }
     navigate('/user/profile')
   }
 

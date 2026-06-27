@@ -4,7 +4,8 @@ import DataTable from '../../components/shared/DataTable'
 import KpiCard from '../../components/shared/KpiCard'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { parkingSites, parkingSlots as mockParkingSlots } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+import { createSlot as apiCreateSlot, updateSlot as apiUpdateSlot, deleteSlot as apiDeleteSlot } from '../../api/slotApi'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 
@@ -19,10 +20,13 @@ const emptyForm = {
 }
 
 export default function ParkingSlotManagement() {
-  const [slots, setSlots] = useState(() => mockParkingSlots.map((slot, index) => ({
+  const state = getState()
+  const parkingSites = state.parkingSites
+
+  const [slots, setSlots] = useState(() => state.parkingSlots.map((slot, index) => ({
     ...slot,
     slotNumber: slot.slotNumber || slot.id.replace('SLOT-', ''),
-    lastUpdated: `2026-06-${String(27 - (index % 6)).padStart(2, '0')} ${String(8 + (index % 9)).padStart(2, '0')}:30`,
+    lastUpdated: slot.lastUpdated || `2026-06-${String(27 - (index % 6)).padStart(2, '0')} ${String(8 + (index % 9)).padStart(2, '0')}:30`,
   })))
   const [filters, setFilters] = useState({ search: '', area: 'All', postalCode: 'All', status: 'All' })
   const [modalOpen, setModalOpen] = useState(false)
@@ -32,8 +36,8 @@ export default function ParkingSlotManagement() {
   const [formError, setFormError] = useState('')
   const importRef = useRef(null)
 
-  const areas = useMemo(() => [...new Set(parkingSites.map((site) => site.area))].sort(), [])
-  const postalCodes = useMemo(() => [...new Set(parkingSites.map((site) => site.postalCode))].sort(), [])
+  const areas = useMemo(() => [...new Set(parkingSites.map((site) => site.area))].sort(), [parkingSites])
+  const postalCodes = useMemo(() => [...new Set(parkingSites.map((site) => site.postalCode))].sort(), [parkingSites])
   const counts = useMemo(() => ({
     total: slots.length,
     available: slots.filter((slot) => slot.status === 'Available').length,
@@ -87,7 +91,7 @@ export default function ParkingSlotManagement() {
     setFormError('')
   }
 
-  const saveSlot = (event) => {
+  const saveSlot = async (event) => {
     event.preventDefault()
     const site = parkingSites.find((item) => item.id === form.siteId)
     const normalizedNumber = form.slotNumber.trim().toUpperCase()
@@ -100,28 +104,46 @@ export default function ParkingSlotManagement() {
       setFormError('A slot with this number already exists.')
       return
     }
-    const nextSlot = {
-      ...(editingSlot || {}),
-      id,
+
+    const payload = {
       siteId: site.id,
-      siteName: site.name,
       area: form.area.trim(),
       postalCode: form.postalCode.trim(),
       slotNumber: normalizedNumber,
       slotType: form.slotType,
       rate: Number(form.rate),
       status: form.status,
-      lastUpdated: new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }),
     }
-    setSlots((current) => editingSlot
-      ? current.map((slot) => slot.id === editingSlot.id ? nextSlot : slot)
-      : [nextSlot, ...current])
-    closeModal()
+
+    let result
+    if (editingSlot) {
+      result = await apiUpdateSlot(editingSlot.id, payload)
+    } else {
+      result = await apiCreateSlot(payload)
+    }
+
+    if (result.success) {
+      // Reload slots from state
+      setSlots(getState().parkingSlots.map((slot, index) => ({
+        ...slot,
+        slotNumber: slot.slotNumber || slot.id.replace('SLOT-', ''),
+        lastUpdated: slot.lastUpdated || `2026-06-${String(27 - (index % 6)).padStart(2, '0')} ${String(8 + (index % 9)).padStart(2, '0')}:30`,
+      })))
+      closeModal()
+    } else {
+      setFormError(result.message || 'Failed to save slot.')
+    }
   }
 
-  const deleteSlot = () => {
-    setSlots((current) => current.filter((slot) => slot.id !== deleteTarget.id))
-    setDeleteTarget(null)
+  const deleteSlot = async () => {
+    const result = await apiDeleteSlot(deleteTarget.id)
+    if (result.success) {
+      setSlots((current) => current.filter((slot) => slot.id !== deleteTarget.id))
+      setDeleteTarget(null)
+    } else {
+      window.alert(result.message || 'Failed to delete slot.')
+      setDeleteTarget(null)
+    }
   }
 
   const handleImport = (event) => {

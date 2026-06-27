@@ -3,13 +3,17 @@ import DataTable from '../../components/shared/DataTable'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
-import { parkingSessions, walletTransactions } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const dateTime = (value) => value ? new Date(value).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '—'
 
 export default function HandlerHistoryPage({ initialTab = 'parking' }) {
   const { currentUser } = useAuth()
+  
+  const _s = getState()
+  const parkingSessions = _s.parkingSessions
+  const walletTransactions = _s.walletTransactions
+
   const [tab, setTab] = useState(initialTab)
   const [parkingFilters, setParkingFilters] = useState({ startDate: '', endDate: '', search: '' })
   const [rechargeFilters, setRechargeFilters] = useState({ startDate: '', endDate: '' })

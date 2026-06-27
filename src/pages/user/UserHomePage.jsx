@@ -2,8 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import StatusBadge from '../../components/shared/StatusBadge'
 import WalletCard from '../../components/shared/WalletCard'
 import { useAuth } from '../../context/AuthContext'
-import { bookings, parkingSessions, parkingSites, users, walletTransactions } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 
 const quickActions = [
@@ -22,6 +21,13 @@ const notifications = [
 export default function UserHomePage() {
   const navigate = useNavigate()
   const { currentUser } = useAuth()
+
+  const _s = getState()
+  const bookings = _s.bookings
+  const parkingSessions = _s.parkingSessions
+  const parkingSites = _s.parkingSites
+  const users = _s.users
+  const walletTransactions = _s.walletTransactions
   const user = users.find((item) => item.id === currentUser.id) || users[0]
   const currentBooking = bookings.find((booking) => booking.userId === user.id && ['Active', 'Reserved'].includes(booking.status))
   const lastSession = parkingSessions.find((session) => session.userId === user.id) || parkingSessions[0]

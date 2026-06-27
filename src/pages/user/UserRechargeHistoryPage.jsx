@@ -3,13 +3,13 @@ import DataTable from '../../components/shared/DataTable'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
-import { walletTransactions } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const dateTime = (value) => new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
 
 export default function UserRechargeHistoryPage() {
   const { currentUser } = useAuth()
+  const walletTransactions = getState().walletTransactions
   const [filters, setFilters] = useState({ startDate: '', endDate: '', status: 'All' })
   const [selected, setSelected] = useState(null)
   const data = useMemo(() => walletTransactions.filter((transaction) => {

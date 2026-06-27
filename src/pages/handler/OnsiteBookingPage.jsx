@@ -5,7 +5,8 @@ import Modal from '../../components/shared/Modal'
 import QRCodeDisplay from '../../components/shared/QRCodeDisplay'
 import QRScannerPlaceholder from '../../components/shared/QRScannerPlaceholder'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { parkingSites, parkingSlots, users } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+import { createBooking as apiCreateBooking } from '../../api/bookingApi'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const localDateTime = () => {
@@ -27,6 +28,13 @@ export default function OnsiteBookingPage() {
   const [filters, setFilters] = useState({ siteId: 'All', slotType: 'All', availableOnly: true })
   const [form, setForm] = useState({ vehiclePlate: '', startTime: localDateTime(), duration: '1' })
   const [createdBooking, setCreatedBooking] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  // Use live data from state
+  const state = getState()
+  const users = state.users
+  const parkingSites = state.parkingSites
+  const parkingSlots = state.parkingSlots
 
   const findUser = (value = query) => {
     const normalized = String(value).trim().toLowerCase()
@@ -46,12 +54,12 @@ export default function OnsiteBookingPage() {
     setSearchError('')
   }
 
-  const slotTypes = useMemo(() => [...new Set(parkingSlots.map((slot) => slot.slotType))].sort(), [])
+  const slotTypes = useMemo(() => [...new Set(parkingSlots.map((slot) => slot.slotType))].sort(), [parkingSlots])
   const filteredSlots = useMemo(() => parkingSlots.filter((slot) => (
     (filters.siteId === 'All' || slot.siteId === filters.siteId)
     && (filters.slotType === 'All' || slot.slotType === filters.slotType)
     && (!filters.availableOnly || slot.status === 'Available')
-  )), [filters])
+  )), [filters, parkingSlots])
 
   const selectSlot = (slot) => {
     if (slot.status !== 'Available') {
@@ -63,22 +71,32 @@ export default function OnsiteBookingPage() {
   }
 
   const estimatedFee = selectedSlot ? Number(form.duration) * selectedSlot.rate : 0
-  const createBooking = (event) => {
+
+  const handleCreateBooking = async (event) => {
     event.preventDefault()
-    const booking = {
-      id: `ONS-${Date.now().toString().slice(-8)}`,
-      qrCode: `QR-ONS-${Date.now()}`,
-      userName: selectedUser.name,
+    setSubmitting(true)
+    setSearchError('')
+
+    const dt = new Date(form.startTime)
+    const dateStr = dt.toISOString().slice(0, 10)
+    const timeStr = dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
+    const result = await apiCreateBooking({
       userId: selectedUser.id,
+      slotId: selectedSlot.id,
+      siteId: selectedSlot.siteId,
       vehiclePlate: form.vehiclePlate,
-      slotNumber: selectedSlot.slotNumber || selectedSlot.id,
-      siteName: selectedSlot.siteName,
-      startTime: form.startTime,
-      duration: Number(form.duration),
-      estimatedFee,
-      status: 'Reserved',
+      date: dateStr,
+      startTime: timeStr,
+      duration: form.duration,
+    })
+
+    setSubmitting(false)
+    if (result.success) {
+      setCreatedBooking(result.booking)
+    } else {
+      setSearchError(result.message || 'Failed to create booking.')
     }
-    setCreatedBooking(booking)
   }
 
   const createAnother = () => {
@@ -121,7 +139,7 @@ export default function OnsiteBookingPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-primary font-bold text-white">3</span><div><h2 className="text-lg font-bold text-slate-900">Booking Form</h2><p className="text-sm text-slate-500">Confirm the booking details and estimated fee.</p></div></div>
           <div className="mb-6 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-blue-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-blue-600">Selected user</p><p className="mt-2 font-bold text-slate-900">{selectedUser.name}</p><p className="mt-1 text-sm text-slate-500">{selectedUser.phone}</p></div><div className="rounded-xl bg-orange-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-orange-600">Selected slot</p><p className="mt-2 font-bold text-slate-900">{selectedSlot.id} · {selectedSlot.siteName}</p><p className="mt-1 text-sm text-slate-500">{selectedSlot.slotType} · {money.format(selectedSlot.rate)}/hr</p></div></div>
-          <form onSubmit={createBooking} className="grid gap-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Vehicle Plate<input required value={form.vehiclePlate} onChange={(event) => setForm((current) => ({ ...current, vehiclePlate: event.target.value }))} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-primary" /></label><label className="text-sm font-semibold text-slate-700">Start Time<input required type="datetime-local" value={form.startTime} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-primary" /></label><label className="text-sm font-semibold text-slate-700">Estimated Duration<select value={form.duration} onChange={(event) => setForm((current) => ({ ...current, duration: event.target.value }))} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 outline-none focus:border-primary">{[1, 2, 3, 4, 8].map((hours) => <option key={hours} value={hours}>{hours}h</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Estimated Fee<input readOnly value={money.format(estimatedFee)} className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-2.5 font-bold text-primary" /></label><button type="submit" className="rounded-xl bg-primary px-5 py-3.5 font-bold text-white hover:bg-primary/90 sm:col-span-2">Create Onsite Booking</button></form>
+          <form onSubmit={handleCreateBooking} className="grid gap-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Vehicle Plate<input required value={form.vehiclePlate} onChange={(event) => setForm((current) => ({ ...current, vehiclePlate: event.target.value }))} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-primary" /></label><label className="text-sm font-semibold text-slate-700">Start Time<input required type="datetime-local" value={form.startTime} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-primary" /></label><label className="text-sm font-semibold text-slate-700">Estimated Duration<select value={form.duration} onChange={(event) => setForm((current) => ({ ...current, duration: event.target.value }))} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 outline-none focus:border-primary">{[1, 2, 3, 4, 8].map((hours) => <option key={hours} value={hours}>{hours}h</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Estimated Fee<input readOnly value={money.format(estimatedFee)} className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-100 px-4 py-2.5 font-bold text-primary" /></label><button type="submit" disabled={submitting} className="rounded-xl bg-primary px-5 py-3.5 font-bold text-white hover:bg-primary/90 sm:col-span-2">{submitting ? 'Creating...' : 'Create Onsite Booking'}</button></form>
         </section>
       )}
 
