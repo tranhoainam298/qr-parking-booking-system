@@ -1,0 +1,9 @@
+@keyframes qr-scan {
+  0% { top: 0; opacity: 0.45; }
+  50% { opacity: 1; }
+  100% { top: calc(100% - 2px); opacity: 0.45; }
+}
+
+.qr-scan-line {
+  animation: qr-scan 2s ease-in-out infinite alternate;
+}
