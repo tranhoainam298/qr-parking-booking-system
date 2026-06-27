@@ -4,15 +4,22 @@ import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
 import WalletCard from '../../components/shared/WalletCard'
 import { useAuth } from '../../context/AuthContext'
-import { users, walletTransactions } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+import { rechargeWalletByCard as apiRechargeWalletByCard } from '../../api/walletApi'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const quickAmounts = [50000, 100000, 200000, 500000]
 
 export default function WalletPage() {
   const { currentUser } = useAuth()
+  
+  const _s = getState()
+  const users = _s.users
+  const walletTransactions = _s.walletTransactions
+
   const user = users.find((item) => item.id === currentUser.id) || users[0]
-  const [balance, setBalance] = useState(user.walletBalance)
+  const wallet = _s.wallets[user.id]
+  const [balance, setBalance] = useState(wallet?.balance ?? user.walletBalance)
   const [form, setForm] = useState({ amount: '', method: 'Debit Card', cardNumber: '', expiry: '', cvv: '' })
   const [gatewayStatus, setGatewayStatus] = useState('idle')
   const [paidAmount, setPaidAmount] = useState(0)
@@ -26,36 +33,46 @@ export default function WalletPage() {
   const history = useMemo(() => [
     ...localTransactions,
     ...walletTransactions.filter((transaction) => transaction.userId === user.id),
-  ], [localTransactions, user.id])
+  ], [localTransactions, walletTransactions, user.id])
 
-  const pay = (event) => {
+  const pay = async (event) => {
     event.preventDefault()
     const amount = Number(form.amount)
     if (amount <= 0 || form.cardNumber.replace(/\D/g, '').length < 12 || !form.expiry || form.cvv.length < 3) {
       window.alert('Complete the amount and valid card details before paying.')
       return
     }
-    timers.current.forEach(window.clearTimeout)
+    
     setPaidAmount(amount)
     setGatewayStatus('connecting')
-    timers.current = [
-      window.setTimeout(() => setGatewayStatus('processing'), 1500),
-      window.setTimeout(() => {
-        const transaction = {
-          id: `TXN-C-${Date.now().toString().slice(-8)}`,
-          userId: user.id,
-          amount,
-          method: form.method,
-          gatewayRef: `GATE-CARD-${Date.now().toString().slice(-10)}`,
-          date: new Date().toISOString(),
-          status: 'Successful',
-        }
-        setBalance((current) => current + amount)
-        setLocalTransactions((current) => [transaction, ...current])
-        setGatewayStatus('success')
-        setForm((current) => ({ ...current, amount: '', cardNumber: '', expiry: '', cvv: '' }))
-      }, 3000),
-    ]
+    
+    // Simulate gateway UI status transitions
+    const connTimer = window.setTimeout(() => {
+      setGatewayStatus('processing')
+    }, 800)
+    timers.current.push(connTimer)
+
+    const result = await apiRechargeWalletByCard({
+      userId: user.id,
+      amount,
+      cardInfo: {
+        cardNumber: form.cardNumber,
+        method: form.method,
+      }
+    })
+
+    window.clearTimeout(connTimer)
+
+    if (result.success) {
+      const liveWallet = getState().wallets[user.id]
+      setBalance(liveWallet?.balance ?? user.walletBalance)
+      setLocalTransactions((current) => [result.transaction, ...current])
+      setGatewayStatus('success')
+      setForm((current) => ({ ...current, amount: '', cardNumber: '', expiry: '', cvv: '' }))
+    } else {
+      setGatewayStatus('failed')
+      window.alert(result.message || 'Payment failed.')
+    }
   }
 
   const formatCard = (value) => value.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim()

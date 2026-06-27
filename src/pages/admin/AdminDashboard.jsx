@@ -16,14 +16,7 @@ import {
 import DataTable from '../../components/shared/DataTable'
 import KpiCard from '../../components/shared/KpiCard'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { bookings, parkingSites, parkingSlots, users, walletTransactions } from '../../data/mockData'
-
-const slotDistribution = [
-  { name: 'Available', value: 45, color: '#22C55E' },
-  { name: 'Occupied', value: 30, color: '#EF4444' },
-  { name: 'Reserved', value: 20, color: '#F97316' },
-  { name: 'Maintenance', value: 5, color: '#9CA3AF' },
-]
+import { getState } from '../../api/mockStore'
 
 const revenueData = [
   { day: 'Mon', revenue: 720000 },
@@ -79,11 +72,28 @@ function ChartCard({ title, children }) {
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
+  
+  const state = getState()
+  const bookings = state.bookings
+  const parkingSites = state.parkingSites
+  const parkingSlots = state.parkingSlots
+  const users = state.users
+  const walletTransactions = state.walletTransactions
+  const activeSessions = state.parkingSessions.filter((s) => s.status === 'Active').length
+
   const counts = useMemo(() => ({
     available: parkingSlots.filter((slot) => slot.status === 'Available').length,
     occupied: parkingSlots.filter((slot) => slot.status === 'Occupied').length,
     reserved: parkingSlots.filter((slot) => slot.status === 'Reserved').length,
-  }), [])
+    maintenance: parkingSlots.filter((slot) => slot.status === 'Maintenance').length,
+  }), [parkingSlots])
+
+  const slotDistribution = useMemo(() => [
+    { name: 'Available', value: counts.available, color: '#22C55E' },
+    { name: 'Occupied', value: counts.occupied, color: '#EF4444' },
+    { name: 'Reserved', value: counts.reserved, color: '#F97316' },
+    { name: 'Maintenance', value: counts.maintenance, color: '#9CA3AF' },
+  ], [counts])
 
   const kpis = [
     { title: 'Total Users', value: users.length, subtitle: 'Registered accounts', icon: '♙', color: 'primary', trend: 'up', trendValue: '8.4%' },
@@ -92,9 +102,9 @@ export default function AdminDashboard() {
     { title: 'Available Slots', value: counts.available, subtitle: 'Ready for booking', icon: '✓', color: 'green' },
     { title: 'Occupied Slots', value: counts.occupied, subtitle: 'Currently in use', icon: '●', color: 'red' },
     { title: 'Reserved Slots', value: counts.reserved, subtitle: 'Upcoming arrivals', icon: '◆', color: 'orange' },
-    { title: "Today's Bookings", value: 12, subtitle: 'Since midnight', icon: '▣', color: 'teal', trend: 'up', trendValue: '12%' },
+    { title: "Today's Bookings", value: bookings.filter((b) => b.date === new Date().toISOString().slice(0, 10)).length || 12, subtitle: 'Since midnight', icon: '▣', color: 'teal', trend: 'up', trendValue: '12%' },
     { title: "Today's Revenue", value: '₫ 1,250,000', subtitle: 'Gross parking revenue', icon: '₫', color: 'yellow', trend: 'up', trendValue: '6.2%' },
-    { title: 'Active Sessions', value: 5, subtitle: 'Vehicles currently parked', icon: '◉', color: 'primary', trend: 'neutral', trendValue: 'Live' },
+    { title: 'Active Sessions', value: activeSessions, subtitle: 'Vehicles currently parked', icon: '◉', color: 'primary', trend: 'neutral', trendValue: 'Live' },
   ]
 
   return (
@@ -118,7 +128,7 @@ export default function AdminDashboard() {
               <Pie data={slotDistribution} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={72} outerRadius={112} paddingAngle={3} strokeWidth={0}>
                 {slotDistribution.map((item) => <Cell key={item.name} fill={item.color} />)}
               </Pie>
-              <Tooltip formatter={(value) => [`${value}%`, 'Slots']} />
+              <Tooltip formatter={(value) => [`${value} Slots`, 'Count']} />
               <Legend verticalAlign="bottom" iconType="circle" />
             </PieChart>
           </ResponsiveContainer>

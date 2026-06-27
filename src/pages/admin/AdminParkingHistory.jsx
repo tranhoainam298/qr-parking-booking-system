@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react'
 import DataTable from '../../components/shared/DataTable'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { bookings, handlers, parkingSessions, parkingSites, users } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const dateTime = (value) => value ? new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : 'In progress'
 
@@ -12,6 +11,13 @@ function DetailItem({ label, value }) {
 }
 
 export default function AdminParkingHistory() {
+  const state = getState()
+  const bookings = state.bookings
+  const handlers = state.handlers
+  const parkingSessions = state.parkingSessions
+  const parkingSites = state.parkingSites
+  const users = state.users
+
   const [filters, setFilters] = useState({ startDate: '', endDate: '', search: '', site: 'All' })
   const [selectedSession, setSelectedSession] = useState(null)
 

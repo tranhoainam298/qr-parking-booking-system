@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import DataTable from '../../components/shared/DataTable'
@@ -7,56 +7,33 @@ import Modal from '../../components/shared/Modal'
 import QRCodeDisplay from '../../components/shared/QRCodeDisplay'
 import StatusBadge from '../../components/shared/StatusBadge'
 import { useAuth } from '../../context/AuthContext'
-import { bookings as mockBookings, parkingSessions, parkingSites } from '../../data/mockData'
+import { getBookingsByUser, cancelBooking as apiCancelBooking } from '../../api/bookingApi'
+import { getSessionByBooking } from '../../api/sessionApi'
+import { getState } from '../../api/mockStore'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const tabs = ['All', 'Reserved', 'Active', 'Completed', 'Cancelled']
-
-function normalizeBooking(booking) {
-  return { ...booking, status: booking.status === 'Confirmed' ? 'Reserved' : booking.status }
-}
-
-function loadBookings(userId) {
-  const mocked = mockBookings.filter((booking) => booking.userId === userId).map(normalizeBooking)
-  try {
-    const stored = JSON.parse(window.sessionStorage.getItem(`qr-parking-bookings-${userId}`) || 'null')
-    if (Array.isArray(stored)) return [...stored, ...mocked.filter((booking) => !stored.some((item) => item.id === booking.id))]
-  } catch {
-    // Fall back to mock data when session storage is unavailable or invalid.
-  }
-  return mocked
-}
-
-function saveBookings(userId, bookings) {
-  try {
-    window.sessionStorage.setItem(`qr-parking-bookings-${userId}`, JSON.stringify(bookings))
-  } catch {
-    // Local component state remains functional when session storage is unavailable.
-  }
-}
 
 export default function MyBookingsPage() {
   const { currentUser } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [bookings, setBookings] = useState(() => loadBookings(currentUser.id))
+  const [bookings, setBookings] = useState([])
   const [activeTab, setActiveTab] = useState('All')
   const [filters, setFilters] = useState({ search: '', status: 'All', startDate: '', endDate: '' })
   const [detailBooking, setDetailBooking] = useState(null)
+  const [detailSession, setDetailSession] = useState(null)
   const [qrBooking, setQrBooking] = useState(null)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [toast, setToast] = useState(location.state?.message || '')
   const toastTimer = useRef(null)
 
-  useEffect(() => {
-    const next = loadBookings(currentUser.id)
-    const incoming = location.state?.createdBooking
-    if (incoming && incoming.userId === currentUser.id && !next.some((booking) => booking.id === incoming.id)) {
-      next.unshift(normalizeBooking(incoming))
-      saveBookings(currentUser.id, next)
-    }
-    setBookings(next)
-  }, [currentUser.id, location.state])
+  const loadBookings = useCallback(async () => {
+    const result = await getBookingsByUser(currentUser.id)
+    if (result.success) setBookings(result.bookings)
+  }, [currentUser.id])
+
+  useEffect(() => { loadBookings() }, [loadBookings])
 
   useEffect(() => {
     if (!toast) return undefined
@@ -84,13 +61,20 @@ export default function MyBookingsPage() {
     ))
   }, [activeTab, bookings, filters])
 
-  const cancelBooking = () => {
-    const next = bookings.map((booking) => booking.id === cancelTarget.id ? { ...booking, status: 'Cancelled' } : booking)
-    setBookings(next)
-    saveBookings(currentUser.id, next)
-    if (detailBooking?.id === cancelTarget.id) setDetailBooking((current) => ({ ...current, status: 'Cancelled' }))
-    setCancelTarget(null)
-    setToast('Booking cancelled successfully.')
+  const cancelBooking = async () => {
+    const result = await apiCancelBooking(cancelTarget.id)
+    if (result.success) {
+      await loadBookings()
+      if (detailBooking?.id === cancelTarget.id) setDetailBooking((current) => ({ ...current, status: 'Cancelled' }))
+      setCancelTarget(null)
+      setToast('Booking cancelled successfully.')
+    }
+  }
+
+  const openDetail = async (booking) => {
+    setDetailBooking(booking)
+    const sessionResult = await getSessionByBooking(booking.id)
+    setDetailSession(sessionResult.success ? sessionResult.session : null)
   }
 
   const actionButton = (event, callback) => {
@@ -108,7 +92,7 @@ export default function MyBookingsPage() {
     {
       key: 'actions', label: 'Actions', render: (_, booking) => (
         <div className="flex min-w-48 flex-wrap gap-1.5">
-          <button type="button" onClick={(event) => actionButton(event, () => setDetailBooking(booking))} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200">View Details</button>
+          <button type="button" onClick={(event) => actionButton(event, () => openDetail(booking))} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200">View Details</button>
           <button type="button" onClick={(event) => actionButton(event, () => setQrBooking(booking))} className="rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-bold text-primary hover:bg-primary/20">Show QR Ticket</button>
           {booking.status === 'Reserved' && <button type="button" onClick={(event) => actionButton(event, () => setCancelTarget(booking))} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100">Cancel Booking</button>}
           {['Completed', 'Cancelled'].includes(booking.status) && <button type="button" onClick={(event) => actionButton(event, () => navigate(`/user/book?slotId=${encodeURIComponent(booking.slotId)}`))} className="rounded-lg bg-green-50 px-2.5 py-1.5 text-xs font-bold text-green-700 hover:bg-green-100">Rebook</button>}
@@ -117,8 +101,7 @@ export default function MyBookingsPage() {
     },
   ]
 
-  const site = detailBooking ? parkingSites.find((item) => item.id === detailBooking.siteId) : null
-  const session = detailBooking ? parkingSessions.find((item) => item.bookingId === detailBooking.id) : null
+  const site = detailBooking ? getState().parkingSites.find((item) => item.id === detailBooking.siteId) : null
 
   return (
     <div className="w-full space-y-6">
@@ -144,14 +127,14 @@ export default function MyBookingsPage() {
         <button type="button" onClick={() => setFilters({ search: '', status: 'All', startDate: '', endDate: '' })} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Reset</button>
       </section>
 
-      <DataTable columns={columns} data={filteredBookings} onRowClick={setDetailBooking} />
+      <DataTable columns={columns} data={filteredBookings} onRowClick={openDetail} />
 
       <DetailDrawer isOpen={Boolean(detailBooking)} onClose={() => setDetailBooking(null)} title={detailBooking?.id || 'Booking Details'}>
-        {detailBooking && <div className="space-y-6"><StatusBadge status={detailBooking.status} /><section><h3 className="mb-3 font-bold text-slate-900">Booking Information</h3><dl className="space-y-2"><Detail label="Booking ID" value={detailBooking.id} /><Detail label="Parking site" value={detailBooking.siteName} /><Detail label="Address" value={site?.address || '—'} /><Detail label="Slot number" value={detailBooking.slotNumber} /><Detail label="Vehicle plate" value={detailBooking.vehiclePlate} /><Detail label="Created time" value={detailBooking.createdAt ? new Date(detailBooking.createdAt).toLocaleString('en-GB') : `${detailBooking.date} ${detailBooking.startTime}`} /><Detail label="Start time" value={`${detailBooking.date} ${detailBooking.startTime}`} /><Detail label="Entry time" value={session?.entryTime ? new Date(session.entryTime).toLocaleString('en-GB') : 'Pending'} /><Detail label="Exit time" value={session?.exitTime ? new Date(session.exitTime).toLocaleString('en-GB') : 'Pending'} /><Detail label="Duration" value={session?.duration || detailBooking.duration} /><Detail label="Fee" value={money.format(session?.fee ?? detailBooking.estimatedFee)} /><Detail label="Payment method" value={session?.paymentMethod || 'Wallet'} /></dl></section><Timeline status={detailBooking.status} /><button type="button" onClick={() => setQrBooking(detailBooking)} className="w-full rounded-xl bg-primary px-5 py-3 font-bold text-white hover:bg-primary/90">Show QR Ticket</button></div>}
+        {detailBooking && <div className="space-y-6"><StatusBadge status={detailBooking.status} /><section><h3 className="mb-3 font-bold text-slate-900">Booking Information</h3><dl className="space-y-2"><Detail label="Booking ID" value={detailBooking.id} /><Detail label="Parking site" value={detailBooking.siteName} /><Detail label="Address" value={site?.address || '—'} /><Detail label="Slot number" value={detailBooking.slotNumber} /><Detail label="Vehicle plate" value={detailBooking.vehiclePlate} /><Detail label="Created time" value={detailBooking.createdAt ? new Date(detailBooking.createdAt).toLocaleString('en-GB') : `${detailBooking.date} ${detailBooking.startTime}`} /><Detail label="Start time" value={`${detailBooking.date} ${detailBooking.startTime}`} /><Detail label="Entry time" value={detailSession?.entryTime ? new Date(detailSession.entryTime).toLocaleString('en-GB') : 'Pending'} /><Detail label="Exit time" value={detailSession?.exitTime ? new Date(detailSession.exitTime).toLocaleString('en-GB') : 'Pending'} /><Detail label="Duration" value={detailSession?.duration || detailBooking.duration} /><Detail label="Fee" value={money.format(detailSession?.fee ?? detailBooking.estimatedFee)} /><Detail label="Payment method" value={detailSession?.paymentMethod || 'Wallet'} /></dl></section><Timeline status={detailBooking.status} /><button type="button" onClick={() => setQrBooking(detailBooking)} className="w-full rounded-xl bg-primary px-5 py-3 font-bold text-white hover:bg-primary/90">Show QR Ticket</button></div>}
       </DetailDrawer>
 
       <Modal isOpen={Boolean(qrBooking)} onClose={() => setQrBooking(null)} title="QR Ticket" size="lg">
-        {qrBooking && <div className="space-y-5 text-center"><QRCodeDisplay value={qrBooking.id} label={qrBooking.id} size={240} /><div className="grid gap-3 text-left sm:grid-cols-2"><Detail label="Parking Site" value={qrBooking.siteName} /><Detail label="Slot Number" value={qrBooking.slotNumber} /><Detail label="Vehicle Plate" value={qrBooking.vehiclePlate} /><div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p><div className="mt-2"><StatusBadge status={qrBooking.status} /></div></div></div><p className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900">Show this QR code to Handler at entry and exit.</p><button type="button" onClick={() => navigate(`/user/qr-ticket?bookingId=${encodeURIComponent(qrBooking.id)}`, { state: { booking: qrBooking } })} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white">Open Full Ticket</button></div>}
+        {qrBooking && <div className="space-y-5 text-center"><QRCodeDisplay value={qrBooking.qrCode || qrBooking.id} label={qrBooking.id} size={240} /><div className="grid gap-3 text-left sm:grid-cols-2"><Detail label="Parking Site" value={qrBooking.siteName} /><Detail label="Slot Number" value={qrBooking.slotNumber} /><Detail label="Vehicle Plate" value={qrBooking.vehiclePlate} /><div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p><div className="mt-2"><StatusBadge status={qrBooking.status} /></div></div></div><p className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900">Show this QR code to Handler at entry and exit.</p><button type="button" onClick={() => navigate(`/user/qr-ticket?bookingId=${encodeURIComponent(qrBooking.id)}`, { state: { booking: qrBooking } })} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white">Open Full Ticket</button></div>}
       </Modal>
 
       <ConfirmModal isOpen={Boolean(cancelTarget)} onClose={() => setCancelTarget(null)} onConfirm={cancelBooking} title="Cancel Booking" message={`Cancel booking ${cancelTarget?.id || ''} at ${cancelTarget?.siteName || ''}?`} confirmLabel="Cancel Booking" confirmColor="red" />

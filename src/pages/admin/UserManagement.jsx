@@ -3,7 +3,8 @@ import ConfirmModal from '../../components/shared/ConfirmModal'
 import DataTable from '../../components/shared/DataTable'
 import Modal from '../../components/shared/Modal'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { bookings, users as mockUsers, walletTransactions } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
+import { updateUser as apiUpdateUser, blockUser as apiBlockUser, unblockUser as apiUnblockUser } from '../../api/userApi'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 
@@ -33,11 +34,20 @@ function ActionButton({ label, children, tone = 'slate', onClick }) {
 }
 
 export default function UserManagement() {
-  const [users, setUsers] = useState(() => mockUsers.map((user, index) => ({
-    ...user,
-    status: user.status === 'Active' ? 'Active' : 'Blocked',
-    createdDate: `2026-${String(1 + (index % 5)).padStart(2, '0')}-${String(4 + index * 2).padStart(2, '0')}`,
-  })))
+  const state = getState()
+  const bookings = state.bookings
+  const walletTransactions = state.walletTransactions
+
+  const [users, setUsers] = useState(() => state.users.map((user, index) => {
+    const liveWallet = state.wallets[user.id]
+    return {
+      ...user,
+      walletBalance: liveWallet?.balance ?? user.walletBalance,
+      status: user.status === 'Active' ? 'Active' : 'Blocked',
+      createdDate: user.createdDate || `2026-${String(1 + (index % 5)).padStart(2, '0')}-${String(4 + index * 2).padStart(2, '0')}`,
+    }
+  }))
+
   const [filters, setFilters] = useState({ search: '', role: 'All', status: 'All' })
   const [detailUser, setDetailUser] = useState(null)
   const [detailTab, setDetailTab] = useState('Information')
@@ -63,19 +73,29 @@ export default function UserManagement() {
     setEditForm({ name: user.name, phone: user.phone, role: user.role, status: user.status })
   }
 
-  const saveUser = (event) => {
+  const saveUser = async (event) => {
     event.preventDefault()
-    const updated = { ...editUser, ...editForm }
-    setUsers((current) => current.map((user) => user.id === editUser.id ? updated : user))
-    if (detailUser?.id === updated.id) setDetailUser(updated)
-    setEditUser(null)
+    const result = await apiUpdateUser(editUser.id, editForm)
+    if (result.success) {
+      const updated = { ...editUser, ...editForm }
+      setUsers((current) => current.map((user) => user.id === editUser.id ? updated : user))
+      if (detailUser?.id === updated.id) setDetailUser(updated)
+      setEditUser(null)
+    } else {
+      window.alert(result.message || 'Update failed')
+    }
   }
 
-  const toggleStatus = () => {
+  const toggleStatus = async () => {
     const nextStatus = statusTarget.status === 'Blocked' ? 'Active' : 'Blocked'
-    setUsers((current) => current.map((user) => user.id === statusTarget.id ? { ...user, status: nextStatus } : user))
-    if (detailUser?.id === statusTarget.id) setDetailUser((current) => ({ ...current, status: nextStatus }))
-    setStatusTarget(null)
+    const result = nextStatus === 'Active' ? await apiUnblockUser(statusTarget.id) : await apiBlockUser(statusTarget.id)
+    if (result.success) {
+      setUsers((current) => current.map((user) => user.id === statusTarget.id ? { ...user, status: nextStatus } : user))
+      if (detailUser?.id === statusTarget.id) setDetailUser((current) => ({ ...current, status: nextStatus }))
+      setStatusTarget(null)
+    } else {
+      window.alert(result.message || 'Status toggle failed')
+    }
   }
 
   const columns = [

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { login as apiLogin } from '../../api/authApi'
 
 const dashboardPaths = { Admin: '/admin', Handler: '/handler', User: '/user' }
 
@@ -17,14 +18,14 @@ function ParkingIllustration() {
 }
 
 export default function LoginPage() {
-  const { currentRole, setRole } = useAuth()
+  const { currentRole, loginUser } = useAuth()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ email: '', password: '', role: currentRole })
+  const [form, setForm] = useState({ email: '', password: '', role: currentRole || 'Admin' })
   const [errors, setErrors] = useState({})
 
   const update = (event) => setForm((current) => ({ ...current, [event.target.name]: event.target.value }))
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault()
     const nextErrors = {}
     if (!/^\S+@\S+\.\S+$/.test(form.email)) nextErrors.email = 'Enter a valid email address.'
@@ -32,8 +33,14 @@ export default function LoginPage() {
     if (!form.role) nextErrors.role = 'Select a role.'
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
-    setRole(form.role)
-    navigate(dashboardPaths[form.role])
+
+    const result = await apiLogin({ email: form.email, password: form.password, role: form.role })
+    if (result.success) {
+      loginUser(result.user, form.role)
+      navigate(dashboardPaths[form.role])
+    } else {
+      setErrors({ email: result.message || 'Login failed.' })
+    }
   }
 
   return (

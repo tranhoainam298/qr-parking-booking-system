@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/shared/DataTable'
 import KpiCard from '../../components/shared/KpiCard'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { parkingSessions } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const formatTime = (value) => new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
@@ -17,6 +16,7 @@ const actions = [
 
 export default function HandlerDashboard() {
   const navigate = useNavigate()
+  const parkingSessions = getState().parkingSessions
   const activeSessions = useMemo(() => parkingSessions.slice(0, 5).map((session, index) => ({
     ...session,
     status: 'Active',

@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/shared/DataTable'
 import DetailDrawer from '../../components/shared/DetailDrawer'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { bookings, parkingSessions, parkingSites, users } from '../../data/mockData'
+import { getState } from '../../api/mockStore'
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
-const dateTime = (value) => new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+const dateTime = (value) => value ? new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
 
 const durations = ['1h 23m', '2h 08m', '45m', '3h 17m', '1h 51m', '4h 02m', '2h 36m', '58m']
 
@@ -15,11 +15,31 @@ export default function ActiveSessionsPage() {
   const [filters, setFilters] = useState({ search: '', site: 'All', status: 'Active' })
   const [selected, setSelected] = useState(null)
 
-  const sessions = useMemo(() => parkingSessions.map((session, index) => ({
-    ...session,
-    computedDuration: session.status === 'Active' ? durations[index] : session.duration,
-    estimatedFee: session.fee || 50000 + index * 15000,
-  })), [])
+  const state = getState()
+  const bookings = state.bookings
+  const users = state.users
+  const parkingSites = state.parkingSites
+
+  const sessions = useMemo(() => state.parkingSessions.map((session, index) => {
+    // Determine hourly rate to compute live estimated fee
+    const b = state.bookings.find((item) => item.id === session.bookingId)
+    const slot = state.parkingSlots.find((item) => item.id === b?.slotId)
+    const hourlyRate = slot?.rate ?? 40000
+
+    let currentDuration = session.duration
+    let estimatedFee = session.fee
+    if (session.status === 'Active') {
+      currentDuration = durations[index % durations.length]
+      const durationHours = parseFloat(currentDuration) || 1
+      estimatedFee = Math.ceil(durationHours) * hourlyRate
+    }
+
+    return {
+      ...session,
+      computedDuration: currentDuration,
+      estimatedFee,
+    }
+  }), [state.parkingSessions, state.bookings, state.parkingSlots])
 
   const filtered = useMemo(() => {
     const query = filters.search.trim().toLowerCase()

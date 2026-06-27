@@ -107,10 +107,13 @@ The selected role determines the dashboard and navigation menu.
 ## Project Structure
 
 ```text
+├── database/            SQL Server schema, seed scripts, and documentation
+├── docs/                Software architecture views (Module, C&C, Deployment)
 src/
+├── api/                 Mock backend service APIs (consistent async delay operations)
 ├── components/shared/   Reusable UI, QR, table, modal, and map components
 ├── context/             Authentication and role state
-├── data/                Mock users, sites, slots, bookings, and transactions
+├── data/                Initial mock database seeds
 ├── layouts/             Role-aware dashboard layout
 ├── pages/
 │   ├── admin/           Admin dashboards and management screens
@@ -122,10 +125,10 @@ src/
 
 ## Data and Persistence
 
-- Application data is currently sourced from `src/data/mockData.js`.
-- Most mutations are held in local React state.
-- User bookings created during the current browser session are stored in `sessionStorage`.
-- Payment gateway, exports, scanner, and backend operations are simulated for UI demonstration.
+- Application data is loaded into `src/api/mockStore.js` on startup.
+- All service modules (`src/api/*Api.js`) read from and write to this centralized mockStore.
+- Modifications are persisted automatically to `localStorage` within the browser, ensuring consistency and persistence across page reloads.
+- Core operations (e.g. entry/exit scans, wallet top-ups, onsite bookings) simulate network latency and validate data rules asynchronously.
 
 ## Privacy
 

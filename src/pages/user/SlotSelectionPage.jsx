@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import StatusBadge from '../../components/shared/StatusBadge'
-import { parkingSites, parkingSlots } from '../../data/mockData'
-
+import { getState } from '../../api/mockStore'
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
 const slotStyles = {
   Available: 'border-green-500 bg-green-100 text-green-800 hover:bg-green-200',
@@ -14,6 +13,11 @@ const slotStyles = {
 export default function SlotSelectionPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+
+  const _s = getState()
+  const parkingSites = _s.parkingSites
+  const parkingSlots = _s.parkingSlots
+
   const site = parkingSites.find((item) => item.id === searchParams.get('siteId')) || parkingSites[0]
   const [filters, setFilters] = useState({ type: 'All', sort: 'none', availableOnly: false })
   const [selectedSlot, setSelectedSlot] = useState(null)
