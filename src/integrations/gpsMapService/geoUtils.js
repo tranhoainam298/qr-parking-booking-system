@@ -1,3 +1,12 @@
+/**
+ * GPS / Map Service Integration — External Integrations
+ * 
+ * Integrates with:
+ * - Browser Geolocation API (GPS)
+ * - OpenStreetMap / Leaflet (Map display)
+ * - Nominatim (Reverse geocoding)
+ */
+
 // Haversine formula — returns distance in km between 2 coordinates
 export function haversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371
